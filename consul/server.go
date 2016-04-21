@@ -159,6 +159,7 @@ type endpoints struct {
 	Health        *Health
 	Status        *Status
 	KVS           *KVS
+	KVSv2         *KVSv2
 	Session       *Session
 	Internal      *Internal
 	ACL           *ACL
@@ -435,6 +436,7 @@ func (s *Server) setupRPC(tlsWrap tlsutil.DCWrapper) error {
 	s.endpoints.Catalog = &Catalog{s}
 	s.endpoints.Health = &Health{s}
 	s.endpoints.KVS = &KVS{s}
+	s.endpoints.KVSv2 = &KVSv2{KVS{s}}
 	s.endpoints.Session = &Session{s}
 	s.endpoints.Internal = &Internal{s}
 	s.endpoints.ACL = &ACL{s}
@@ -446,6 +448,7 @@ func (s *Server) setupRPC(tlsWrap tlsutil.DCWrapper) error {
 	s.rpcServer.Register(s.endpoints.Catalog)
 	s.rpcServer.Register(s.endpoints.Health)
 	s.rpcServer.Register(s.endpoints.KVS)
+	s.rpcServer.Register(s.endpoints.KVSv2)
 	s.rpcServer.Register(s.endpoints.Session)
 	s.rpcServer.Register(s.endpoints.Internal)
 	s.rpcServer.Register(s.endpoints.ACL)

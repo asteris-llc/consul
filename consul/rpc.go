@@ -305,6 +305,27 @@ func (s *Server) raftApply(t structs.MessageType, msg interface{}) (interface{},
 	return future.Response(), nil
 }
 
+// raftApply is used to encode a message, run it through raft, and return
+// the FSM response along with any errors
+func (s *Server) raftApplyIdx(t structs.MessageType, msg interface{}) (interface{}, uint64, error) {
+	buf, err := structs.Encode(t, msg)
+	if err != nil {
+		return nil, 0, fmt.Errorf("Failed to encode request: %v", err)
+	}
+
+	// Warn if the command is very large
+	if n := len(buf); n > raftWarnSize {
+		s.logger.Printf("[WARN] consul: Attempting to apply large raft entry (%d bytes)", n)
+	}
+
+	future := s.raft.Apply(buf, enqueueLimit)
+	if err := future.Error(); err != nil {
+		return nil, 0, err
+	}
+
+	return future.Response(), future.Index(), nil
+}
+
 // blockingRPC is used for queries that need to wait for a minimum index. This
 // is used to block and wait for changes.
 func (s *Server) blockingRPC(queryOpts *structs.QueryOptions, queryMeta *structs.QueryMeta,

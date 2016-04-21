@@ -543,6 +543,12 @@ type KVSRequest struct {
 	WriteRequest
 }
 
+// KVSApplyResponse is returned by Key-Value store's Apply method
+type KVSReply struct {
+	Success     bool
+	ModifyIndex uint64
+}
+
 func (r *KVSRequest) RequestDatacenter() string {
 	return r.Datacenter
 }

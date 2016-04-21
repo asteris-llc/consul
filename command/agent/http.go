@@ -242,6 +242,7 @@ func (s *HTTPServer) registerHandlers(enableDebug bool) {
 	s.mux.HandleFunc("/v1/event/list", s.wrap(s.EventList))
 
 	s.mux.HandleFunc("/v1/kv/", s.wrap(s.KVSEndpoint))
+	s.mux.HandleFunc("/v1/kv_2/", s.wrap(s.KVSEndpoint2))
 
 	s.mux.HandleFunc("/v1/session/create", s.wrap(s.SessionCreate))
 	s.mux.HandleFunc("/v1/session/destroy/", s.wrap(s.SessionDestroy))
