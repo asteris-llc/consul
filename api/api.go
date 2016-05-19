@@ -80,6 +80,9 @@ type QueryMeta struct {
 
 	// How long did the request take
 	RequestTime time.Duration
+	
+	// What status code did we receive
+	HttpStatusCode int
 }
 
 // WriteMeta is used to return meta data about a write
@@ -524,6 +527,7 @@ func parseQueryMeta(resp *http.Response, q *QueryMeta) error {
 		return fmt.Errorf("Failed to parse X-Consul-Index: %v", err)
 	}
 	q.LastIndex = index
+	q.HttpStatusCode = resp.StatusCode
 
 	// Parse the X-Consul-LastContact
 	last, err := strconv.ParseUint(header.Get("X-Consul-LastContact"), 10, 64)
