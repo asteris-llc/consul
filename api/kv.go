@@ -212,8 +212,7 @@ func (k *KV) put(key string, params map[string]string, body []byte, q *WriteOpti
 		return false, nil, 0, fmt.Errorf("Invalid key. Key must not begin with a '/': %s", key)
 	}
 
-	//r := k.c.newRequest("PUT", "/v1/kv/"+key)
-	r := k.c.newRequest("PUT", "/v1/kv_2/"+key)
+	r := k.c.newRequest("PUT", "/v2/kv/"+key)
 	r.setWriteOptions(q)
 	for param, val := range params {
 		r.params.Set(param, val)
@@ -231,10 +230,10 @@ func (k *KV) put(key string, params map[string]string, body []byte, q *WriteOpti
 	var response KvPutResponse
 
 	//if err := decodeBody( resp, &response.Success ); err != nil {
-	if err := decodeBody( resp, &response ); err != nil {
+	if err := decodeBody(resp, &response); err != nil {
 		return false, nil, 0, err
 	}
-	
+
 	return response.Success, qm, response.ModifyIndex, nil
 }
 
