@@ -61,7 +61,7 @@ func (s *HTTPServer) KVSEndpoint2(resp http.ResponseWriter, req *http.Request) (
 	}
 
 	// Pull out the key name, validation left to each sub-handler
-	args.Key = strings.TrimPrefix(req.URL.Path, "/v1/kv_2/")
+	args.Key = strings.TrimPrefix(req.URL.Path, "/v2/kv/")
 
 	// Check for a key list
 	keyList := false
@@ -168,7 +168,7 @@ func (s *HTTPServer) KVSGetKeys(resp http.ResponseWriter, req *http.Request, arg
 
 func errIsLegacyServerReply(err error) bool {
 	// TODO: verify that err is expected result from legacy version
-	return true;
+	return true
 }
 
 // KVSPut handles a PUT request
@@ -244,7 +244,7 @@ func (s *HTTPServer) KVSPut(resp http.ResponseWriter, req *http.Request, args *s
 		//		return nil, err
 		//	}
 		//} else {
-			return nil, err
+		return nil, err
 		//}
 	}
 	// Only use the out value if this was a CAS
@@ -253,14 +253,14 @@ func (s *HTTPServer) KVSPut(resp http.ResponseWriter, req *http.Request, args *s
 	}
 
 	switch respVer {
-		case 1:
-			return out.Success, nil
-			
-		case 2:
-			return out, nil
-			
-		default:
-			return nil, nil
+	case 1:
+		return out.Success, nil
+
+	case 2:
+		return out, nil
+
+	default:
+		return nil, nil
 	}
 }
 
