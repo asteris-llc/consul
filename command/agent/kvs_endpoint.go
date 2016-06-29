@@ -44,7 +44,42 @@ func (s *HTTPServer) KVSEndpoint(resp http.ResponseWriter, req *http.Request) (i
 			return s.KVSGet(resp, req, &args)
 		}
 	case "PUT":
-		return s.KVSPut(resp, req, &args)
+		return s.KVSPut(resp, req, &args, 1)
+	case "DELETE":
+		return s.KVSDelete(resp, req, &args)
+	default:
+		resp.WriteHeader(405)
+		return nil, nil
+	}
+}
+
+func (s *HTTPServer) KVSEndpoint2(resp http.ResponseWriter, req *http.Request) (interface{}, error) {
+	// Set default DC
+	args := structs.KeyRequest{}
+	if done := s.parse(resp, req, &args.Datacenter, &args.QueryOptions); done {
+		return nil, nil
+	}
+
+	// Pull out the key name, validation left to each sub-handler
+	args.Key = strings.TrimPrefix(req.URL.Path, "/v2/kv/")
+
+	// Check for a key list
+	keyList := false
+	params := req.URL.Query()
+	if _, ok := params["keys"]; ok {
+		keyList = true
+	}
+
+	// Switch on the method
+	switch req.Method {
+	case "GET":
+		if keyList {
+			return s.KVSGetKeys(resp, req, &args)
+		} else {
+			return s.KVSGet(resp, req, &args)
+		}
+	case "PUT":
+		return s.KVSPut(resp, req, &args, 2)
 	case "DELETE":
 		return s.KVSDelete(resp, req, &args)
 	default:
@@ -131,8 +166,13 @@ func (s *HTTPServer) KVSGetKeys(resp http.ResponseWriter, req *http.Request, arg
 	return out.Keys, nil
 }
 
+func errIsLegacyServerReply(err error) bool {
+	// TODO: verify that err is expected result from legacy version
+	return true
+}
+
 // KVSPut handles a PUT request
-func (s *HTTPServer) KVSPut(resp http.ResponseWriter, req *http.Request, args *structs.KeyRequest) (interface{}, error) {
+func (s *HTTPServer) KVSPut(resp http.ResponseWriter, req *http.Request, args *structs.KeyRequest, respVer uint) (interface{}, error) {
 	if missingKey(resp, args) {
 		return nil, nil
 	}
@@ -197,16 +237,30 @@ func (s *HTTPServer) KVSPut(resp http.ResponseWriter, req *http.Request, args *s
 	applyReq.DirEnt.Value = buf.Bytes()
 
 	// Make the RPC
-	var out bool
-	if err := s.agent.RPC("KVS.Apply", &applyReq, &out); err != nil {
+	var out structs.KVSReply
+	if err := s.agent.RPC("KVSv2.Apply", &applyReq, &out); err != nil {
+		//if errIsLegacyServerReply(err) {
+		//	if err := s.agent.RPC("KVS.Apply", &applyReq, &out.Success); err != nil {
+		//		return nil, err
+		//	}
+		//} else {
 		return nil, err
+		//}
 	}
-
 	// Only use the out value if this was a CAS
 	if applyReq.Op == structs.KVSSet {
-		return true, nil
-	} else {
+		out.Success = true
+	}
+
+	switch respVer {
+	case 1:
+		return out.Success, nil
+
+	case 2:
 		return out, nil
+
+	default:
+		return nil, nil
 	}
 }
 
@@ -243,14 +297,20 @@ func (s *HTTPServer) KVSDelete(resp http.ResponseWriter, req *http.Request, args
 	}
 
 	// Make the RPC
-	var out bool
-	if err := s.agent.RPC("KVS.Apply", &applyReq, &out); err != nil {
-		return nil, err
+	var out structs.KVSReply
+	if err := s.agent.RPC("KVS.Apply", &applyReq, &out.Success); err != nil {
+		//if errIsLegacyServerReply(err) {
+		//	if err := s.agent.RPC("KVS.Apply", &applyReq, &out.Success); err != nil {
+		//		return nil, err
+		//	}
+		//} else {
+		//	return nil, err
+		//}
 	}
 
 	// Only use the out value if this was a CAS
 	if applyReq.Op == structs.KVSDeleteCAS {
-		return out, nil
+		return out.Success, nil
 	} else {
 		return true, nil
 	}

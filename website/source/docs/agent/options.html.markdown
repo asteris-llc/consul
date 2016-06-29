@@ -93,7 +93,8 @@ The options below are all specified on the command-line.
   for internal cluster communications.
   This is an IP address that should be reachable by all other nodes in the cluster.
   By default, this is "0.0.0.0", meaning Consul will use the first available private
-  IP address. Consul uses both TCP and UDP and the same port for both. If you
+  IPv4 address. If you specify "[::]", Consul will use the first available public IPv6 address.
+  Consul uses both TCP and UDP and the same port for both. If you
   have any firewalls, be sure to allow both protocols.
 
 * <a name="_client"></a><a href="#_client">`-client`</a> - The address to which
@@ -284,6 +285,37 @@ definitions support being updated during a reload.
 }
 ```
 
+#### Example Configuration File, with TLS
+
+```javascript
+{
+  "datacenter": "east-aws",
+  "data_dir": "/opt/consul",
+  "log_level": "INFO",
+  "node_name": "foobar",
+  "server": true,
+  "addresses": {
+    "https": "0.0.0.0"
+  },
+  "ports": {
+    "https": 8080
+  },
+  "key_file": "/etc/pki/tls/private/my.key",
+  "cert_file": "/etc/pki/tls/certs/my.crt",
+  "ca_file": "/etc/pki/tls/certs/ca-bundle.crt"
+}
+```
+
+Note that the use of `port`:
+
+```javascript
+"ports": {
+  "https": 8080
+}
+```
+
+Consul will not enable TLS for the HTTP API unless the `https` port has been assigned a port number `> 0`.
+
 #### Configuration Key Reference
 
 * <a name="acl_datacenter"></a><a href="#acl_datacenter">`acl_datacenter`</a> - Only
@@ -335,34 +367,36 @@ definitions support being updated during a reload.
   Both `rpc` and `http` support binding to Unix domain sockets. A socket can be
   specified in the form `unix:///path/to/socket`. A new domain socket will be
   created at the given path. If the specified file path already exists, Consul
-  will attempt to clear the file and create the domain socket in its place.
-  <br><br>
-  The permissions of the socket file are tunable via the [`unix_sockets` config
-  construct](#unix_sockets).
+  will attempt to clear the file and create the domain socket in its place. The
+  permissions of the socket file are tunable via the [`unix_sockets` config construct](#unix_sockets).
   <br><br>
   When running Consul agent commands against Unix socket interfaces, use the
   `-rpc-addr` or `-http-addr` arguments to specify the path to the socket. You
   can also place the desired values in `CONSUL_RPC_ADDR` and `CONSUL_HTTP_ADDR`
-  environment variables. For TCP addresses, these should be in the form ip:port.
+  environment variables.
+  <br><br>
+  For TCP addresses, these should simply be an IP address without the port. For
+  example: `10.0.0.1`, not `10.0.0.1:8500`. Ports are set separately in the
+  <a href="#ports">`ports`</a> structure.
   <br><br>
   The following keys are valid:
   * `dns` - The DNS server. Defaults to `client_addr`
   * `http` - The HTTP API. Defaults to `client_addr`
   * `https` - The HTTPS API. Defaults to `client_addr`
-  * `rpc` - The RPC endpoint. Defaults to `client_addr`
-
+  * `rpc` - The CLI RPC endpoint. Defaults to `client_addr`
 * <a name="advertise_addr"></a><a href="#advertise_addr">`advertise_addr`</a> Equivalent to
   the [`-advertise` command-line flag](#_advertise).
 
 * <a name="advertise_addrs"></a><a href="#advertise_addrs">`advertise_addrs`</a> Allows to set
   the advertised addresses for SerfLan, SerfWan and RPC together with the port. This gives
-  you more control than (#_advertise) or (#_advertise-wan) while it serves the same purpose.
-  These settings might override (#_advertise) and (#_advertise-wan).
+  you more control than <a href="#_advertise">`-advertise`</a> or <a href="#_advertise-wan">`-advertise-wan`</a>
+  while it serves the same purpose. These settings might override <a href="#_advertise">`-advertise`</a> or
+  <a href="#_advertise-wan">`-advertise-wan`</a>
   <br><br>
   This is a nested setting that allows the following keys:
   * `serf_lan` - The SerfLan address. Accepts values in the form of "host:port" like "10.23.31.101:8301".
   * `serf_wan` - The SerfWan address. Accepts values in the form of "host:port" like "10.23.31.101:8302".
-  * `rpc` - The RPC address. Accepts values in the form of "host:port" like "10.23.31.101:8400".
+  * `rpc` - The server RPC address. Accepts values in the form of "host:port" like "10.23.31.101:8300".
 
 * <a name="advertise_addr_wan"></a><a href="#advertise_addr_wan">`advertise_addr_wan`</a> Equivalent to
   the [`-advertise-wan` command-line flag](#_advertise-wan).
@@ -460,12 +494,32 @@ definitions support being updated during a reload.
   setting this value.
 
   * <a name="enable_truncate"></a><a href="#enable_truncate">`enable_truncate`</a> If set to
-  true, a UDP DNS query that would return more than 3 records will set the truncated flag,
-  indicating to clients that they should re-query using TCP to get the full set of records.
+  true, a UDP DNS query that would return more than 3 records, or more than would fit into a valid
+  UDP response, will set the truncated flag, indicating to clients that they should re-query
+  using TCP to get the full set of records.
 
-  * <a name="only_passing"></a><a href="#only_passing">`only_passing`</a> If set to true, any
-  nodes whose healthchecks are not passing will be excluded from DNS results. By default (or
-  if set to false), only nodes whose healthchecks are failing as critical will be excluded.
+  * <a name="only_passing"></a><a href="#only_passing">`only_passing`</a>
+  When set to true, the default, the querying agent will only receive node
+  or service addresses for healthy services.  A healthy service is defined
+  as a service with one or more healthchecks and all defined healthchecks
+  for the service are in a passing or warning state (i.e. not
+  critical). Set to false to have the querying agent include all node and
+  service addresses regardless of the health of the service.
+
+  * <a name="udp_answer_limit"></a><a
+  href="#udp_answer_limit">`udp_answer_limit`</a> - Limit the number of
+  resource records contained in the answer section of a UDP-based DNS
+  response.  When answering a question, Consul will use the complete list of
+  matching hosts, shuffle the list randomly, and then limit the number of
+  answers to `udp_answer_limit` (default `3`).  In environments where
+  [RFC 3484 Section 6](https://tools.ietf.org/html/rfc3484#section-6) Rule 9
+  is implemented and enforced (i.e. DNS answers are always sorted and
+  therefore never random), clients may need to set this value to `1` to
+  preserve the expected randomized distribution behavior (note:
+  [https://tools.ietf.org/html/rfc3484](RFC 3484) has been obsoleted by
+  [RFC 6724](https://tools.ietf.org/html/rfc6724) and as a result it should
+  be increasingly uncommon to need to change this value with modern
+  resolvers).
 
 * <a name="domain"></a><a href="#domain">`domain`</a> Equivalent to the
   [`-domain` command-line flag](#_domain).
@@ -513,7 +567,7 @@ definitions support being updated during a reload.
     * <a name="dns_port"></a><a href="#dns_port">`dns`</a> - The DNS server, -1 to disable. Default 8600.
     * <a name="http_port"></a><a href="#http_port">`http`</a> - The HTTP API, -1 to disable. Default 8500.
     * <a name="https_port"></a><a href="#https_port">`https`</a> - The HTTPS API, -1 to disable. Default -1 (disabled).
-    * <a name="rpc_port"></a><a href="#rpc_port">`rpc`</a> - The RPC endpoint. Default 8400.
+    * <a name="rpc_port"></a><a href="#rpc_port">`rpc`</a> - The CLI RPC endpoint. Default 8400.
     * <a name="serf_lan_port"></a><a href="#serf_lan_port">`serf_lan`</a> - The Serf LAN port. Default 8301.
     * <a name="serf_wan_port"></a><a href="#serf_wan_port">`serf_wan`</a> - The Serf WAN port. Default 8302.
     * <a name="server_rpc_port"></a><a href="#server_rpc_port">`server`</a> - Server RPC address. Default 8300.
@@ -567,11 +621,18 @@ definitions support being updated during a reload.
   at or above the default to encourage clients to send infrequent heartbeats.
   Defaults to 10s.
 
-* <a name="skip_leave_on_interrupt"></a><a href="#skip_leave_on_interrupt">`skip_leave_on_interrupt`</a>
-  This is similar to [`leave_on_terminate`](#leave_on_terminate) but
-  only affects interrupt handling. By default, an interrupt (such as hitting
-  Control-C in a shell) causes Consul to gracefully leave. Setting this to true
-  disables that. Defaults to false.
+* <a name="skip_leave_on_interrupt"></a><a
+  href="#skip_leave_on_interrupt">`skip_leave_on_interrupt`</a> This is
+  similar to [`leave_on_terminate`](#leave_on_terminate) but only affects
+  interrupt handling.  When Consul receives an interrupt signal (such as
+  hitting Control-C in a terminal), Consul will gracefully leave the cluster.
+  Setting this to `true` disables that behavior.  The default behavior for
+  this feature varies based on whether or not the agent is running as a
+  client or a server (prior to Consul 0.7 the default value was
+  unconditionally set to `false`).  On agents in client-mode, this defaults
+  to `false` and for agents in server-mode, this defaults to `true`
+  (i.e. Ctrl-C on a server will keep the server in the cluster and therefore
+  quorum, and Ctrl-C on a client will gracefully leave).
 
 * <a name="start_join"></a><a href="#start_join">`start_join`</a> An array of strings specifying addresses
   of nodes to [`-join`](#_join) upon startup.
@@ -688,7 +749,7 @@ definitions support being updated during a reload.
    [watch documentation](/docs/agent/watches.html) for more detail. Watches can be
    modified when the configuration is reloaded.
 
-## Ports Used
+## <a id="ports"></a>Ports Used
 
 Consul requires up to 5 different ports to work properly, some on
 TCP, UDP, or both protocols. Below we document the requirements for each
@@ -711,7 +772,11 @@ port.
 
 * DNS Interface (Default 8600). Used to resolve DNS queries. TCP and UDP.
 
-## <a id="reloadable-configuration"></a>Reloadable Configuration</a>
+Consul will also make an outgoing connection to HashiCorp's servers for
+Atlas-related features and to check for the availability of newer versions
+of Consul. This will be a TLS-secured TCP connection to `scada.hashicorp.com:7223`.
+
+## <a id="reloadable-configuration"></a>Reloadable Configuration
 
 Reloading configuration does not reload all configuration items. The
 items which are reloaded include:

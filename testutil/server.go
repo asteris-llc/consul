@@ -24,7 +24,6 @@ import (
 	"os/exec"
 	"strings"
 	"sync/atomic"
-	"testing"
 
 	"github.com/hashicorp/go-cleanhttp"
 )
@@ -112,6 +111,15 @@ type TestCheck struct {
 	TTL       string `json:",omitempty"`
 }
 
+// TestingT is an interface wrapper around TestingT
+type TestingT interface {
+	Logf(format string, args ...interface{})
+	Errorf(format string, args ...interface{})
+	Fatalf(format string, args ...interface{})
+	Fatal(args ...interface{})
+	Skip(args ...interface{})
+}
+
 // TestKVResponse is what we use to decode KV data.
 type TestKVResponse struct {
 	Value string
@@ -119,9 +127,9 @@ type TestKVResponse struct {
 
 // TestServer is the main server wrapper struct.
 type TestServer struct {
-	PID    int
+	cmd    *exec.Cmd
 	Config *TestServerConfig
-	t      *testing.T
+	t      TestingT
 
 	HTTPAddr string
 	LANAddr  string
@@ -132,13 +140,13 @@ type TestServer struct {
 
 // NewTestServer is an easy helper method to create a new Consul
 // test server with the most basic configuration.
-func NewTestServer(t *testing.T) *TestServer {
+func NewTestServer(t TestingT) *TestServer {
 	return NewTestServerConfig(t, nil)
 }
 
 // NewTestServerConfig creates a new TestServer, and makes a call to
 // an optional callback function to modify the configuration.
-func NewTestServerConfig(t *testing.T, cb ServerConfigCallback) *TestServer {
+func NewTestServerConfig(t TestingT, cb ServerConfigCallback) *TestServer {
 	if path, err := exec.LookPath("consul"); err != nil || path == "" {
 		t.Skip("consul not found on $PATH, skipping")
 	}
@@ -207,7 +215,7 @@ func NewTestServerConfig(t *testing.T, cb ServerConfigCallback) *TestServer {
 
 	server := &TestServer{
 		Config: consulConfig,
-		PID:    cmd.Process.Pid,
+		cmd:    cmd,
 		t:      t,
 
 		HTTPAddr: httpAddr,
@@ -232,10 +240,13 @@ func NewTestServerConfig(t *testing.T, cb ServerConfigCallback) *TestServer {
 func (s *TestServer) Stop() {
 	defer os.RemoveAll(s.Config.DataDir)
 
-	cmd := exec.Command("kill", "-9", fmt.Sprintf("%d", s.PID))
-	if err := cmd.Run(); err != nil {
+	if err := s.cmd.Process.Kill(); err != nil {
 		s.t.Errorf("err: %s", err)
 	}
+
+	// wait for the process to exit to be sure that the data dir can be
+	// deleted on all platforms.
+	s.cmd.Wait()
 }
 
 // waitForAPI waits for only the agent HTTP endpoint to start
@@ -384,7 +395,7 @@ func (s *TestServer) GetKV(key string) []byte {
 		s.t.Fatalf("err: %s", err)
 	}
 
-	return []byte(v)
+	return v
 }
 
 // PopulateKV fills the Consul KV with data from a generic map.

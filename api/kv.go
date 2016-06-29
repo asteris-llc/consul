@@ -20,6 +20,11 @@ type KVPair struct {
 	Session     string
 }
 
+type KvPutResponse struct {
+	Success     bool
+	ModifyIndex uint64
+}
+
 // KVPairs is a list of KVPair objects
 type KVPairs []*KVPair
 
@@ -127,52 +132,87 @@ func (k *KV) Put(p *KVPair, q *WriteOptions) (*WriteMeta, error) {
 	if p.Flags != 0 {
 		params["flags"] = strconv.FormatUint(p.Flags, 10)
 	}
-	_, wm, err := k.put(p.Key, params, p.Value, q)
+	_, wm, _, err := k.put(p.Key, params, p.Value, q)
+	return wm, err
+}
+
+// Put_v2 is used to write a new value. Only the
+// Key, Flags and Value is respected. Upon success,
+// the ModifyIndex field is set to the new index.
+func (k *KV) Put_v2(p *KVPair, q *WriteOptions) (*WriteMeta, error) {
+	params := make(map[string]string, 1)
+	if p.Flags != 0 {
+		params["flags"] = strconv.FormatUint(p.Flags, 10)
+	}
+	_, wm, idx, err := k.put(p.Key, params, p.Value, q)
+	if err == nil {
+		p.ModifyIndex = idx
+	}
 	return wm, err
 }
 
 // CAS is used for a Check-And-Set operation. The Key,
 // ModifyIndex, Flags and Value are respected. Returns true
 // on success or false on failures.
-func (k *KV) CAS(p *KVPair, q *WriteOptions) (bool, *WriteMeta, error) {
+func (k *KV) CAS(p *KVPair, q *WriteOptions) (success bool, wm *WriteMeta, err error) {
 	params := make(map[string]string, 2)
 	if p.Flags != 0 {
 		params["flags"] = strconv.FormatUint(p.Flags, 10)
 	}
 	params["cas"] = strconv.FormatUint(p.ModifyIndex, 10)
-	return k.put(p.Key, params, p.Value, q)
+	success, wm, _, err = k.put(p.Key, params, p.Value, q)
+	return
+}
+
+// CAS_v2 is used for a Check-And-Set operation. The Key,
+// ModifyIndex, Flags and Value are respected. Returns true
+// on success or false on failures. Upon success, the
+// ModifyIndex field is set to the new index.
+func (k *KV) CAS_v2(p *KVPair, q *WriteOptions) (success bool, wm *WriteMeta, err error) {
+	params := make(map[string]string, 2)
+	if p.Flags != 0 {
+		params["flags"] = strconv.FormatUint(p.Flags, 10)
+	}
+	params["cas"] = strconv.FormatUint(p.ModifyIndex, 10)
+	success, wm, idx, err := k.put(p.Key, params, p.Value, q)
+	if success {
+		p.ModifyIndex = idx
+	}
+	return
 }
 
 // Acquire is used for a lock acquisition operation. The Key,
 // Flags, Value and Session are respected. Returns true
 // on success or false on failures.
-func (k *KV) Acquire(p *KVPair, q *WriteOptions) (bool, *WriteMeta, error) {
+func (k *KV) Acquire(p *KVPair, q *WriteOptions) (success bool, wm *WriteMeta, err error) {
 	params := make(map[string]string, 2)
 	if p.Flags != 0 {
 		params["flags"] = strconv.FormatUint(p.Flags, 10)
 	}
 	params["acquire"] = p.Session
-	return k.put(p.Key, params, p.Value, q)
+	success, wm, _, err = k.put(p.Key, params, p.Value, q)
+	return
 }
 
 // Release is used for a lock release operation. The Key,
 // Flags, Value and Session are respected. Returns true
 // on success or false on failures.
-func (k *KV) Release(p *KVPair, q *WriteOptions) (bool, *WriteMeta, error) {
+func (k *KV) Release(p *KVPair, q *WriteOptions) (success bool, wm *WriteMeta, err error) {
 	params := make(map[string]string, 2)
 	if p.Flags != 0 {
 		params["flags"] = strconv.FormatUint(p.Flags, 10)
 	}
 	params["release"] = p.Session
-	return k.put(p.Key, params, p.Value, q)
+	success, wm, _, err = k.put(p.Key, params, p.Value, q)
+	return
 }
 
-func (k *KV) put(key string, params map[string]string, body []byte, q *WriteOptions) (bool, *WriteMeta, error) {
+func (k *KV) put(key string, params map[string]string, body []byte, q *WriteOptions) (bool, *WriteMeta, uint64, error) {
 	if len(key) > 0 && key[0] == '/' {
-		return false, nil, fmt.Errorf("Invalid key. Key must not begin with a '/': %s", key)
+		return false, nil, 0, fmt.Errorf("Invalid key. Key must not begin with a '/': %s", key)
 	}
 
-	r := k.c.newRequest("PUT", "/v1/kv/"+key)
+	r := k.c.newRequest("PUT", "/v2/kv/"+key)
 	r.setWriteOptions(q)
 	for param, val := range params {
 		r.params.Set(param, val)
@@ -180,19 +220,21 @@ func (k *KV) put(key string, params map[string]string, body []byte, q *WriteOpti
 	r.body = bytes.NewReader(body)
 	rtt, resp, err := requireOK(k.c.doRequest(r))
 	if err != nil {
-		return false, nil, err
+		return false, nil, 0, err
 	}
 	defer resp.Body.Close()
 
 	qm := &WriteMeta{}
 	qm.RequestTime = rtt
 
-	var buf bytes.Buffer
-	if _, err := io.Copy(&buf, resp.Body); err != nil {
-		return false, nil, fmt.Errorf("Failed to read response: %v", err)
+	var response KvPutResponse
+
+	//if err := decodeBody( resp, &response.Success ); err != nil {
+	if err := decodeBody(resp, &response); err != nil {
+		return false, nil, 0, err
 	}
-	res := strings.Contains(string(buf.Bytes()), "true")
-	return res, qm, nil
+
+	return response.Success, qm, response.ModifyIndex, nil
 }
 
 // Delete is used to delete a single key

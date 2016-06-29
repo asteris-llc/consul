@@ -232,6 +232,7 @@ func (s *HTTPServer) registerHandlers(enableDebug bool) {
 	s.mux.HandleFunc("/v1/agent/check/pass/", s.wrap(s.AgentCheckPass))
 	s.mux.HandleFunc("/v1/agent/check/warn/", s.wrap(s.AgentCheckWarn))
 	s.mux.HandleFunc("/v1/agent/check/fail/", s.wrap(s.AgentCheckFail))
+	s.mux.HandleFunc("/v1/agent/check/update/", s.wrap(s.AgentCheckUpdate))
 
 	s.mux.HandleFunc("/v1/agent/service/register", s.wrap(s.AgentRegisterService))
 	s.mux.HandleFunc("/v1/agent/service/deregister/", s.wrap(s.AgentDeregisterService))
@@ -241,6 +242,7 @@ func (s *HTTPServer) registerHandlers(enableDebug bool) {
 	s.mux.HandleFunc("/v1/event/list", s.wrap(s.EventList))
 
 	s.mux.HandleFunc("/v1/kv/", s.wrap(s.KVSEndpoint))
+	s.mux.HandleFunc("/v2/kv/", s.wrap(s.KVSEndpoint2))
 
 	s.mux.HandleFunc("/v1/session/create", s.wrap(s.SessionCreate))
 	s.mux.HandleFunc("/v1/session/destroy/", s.wrap(s.SessionDestroy))
@@ -363,6 +365,11 @@ func (s *HTTPServer) wrap(handler func(resp http.ResponseWriter, req *http.Reque
 	return f
 }
 
+// Returns true if the UI is enabled.
+func (s *HTTPServer) IsUIEnabled() bool {
+	return s.uiDir != "" || s.agent.config.EnableUi
+}
+
 // Renders a simple index page
 func (s *HTTPServer) Index(resp http.ResponseWriter, req *http.Request) {
 	// Check if this is a non-index path
@@ -371,8 +378,9 @@ func (s *HTTPServer) Index(resp http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	// Check if we have no UI configured
-	if s.uiDir == "" {
+	// Give them something helpful if there's no UI so they at least know
+	// what this server is.
+	if !s.IsUIEnabled() {
 		resp.Write([]byte("Consul Agent"))
 		return
 	}

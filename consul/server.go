@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/hashicorp/consul/acl"
+	"github.com/hashicorp/consul/consul/agent"
 	"github.com/hashicorp/consul/consul/state"
 	"github.com/hashicorp/consul/tlsutil"
 	"github.com/hashicorp/raft"
@@ -97,7 +98,7 @@ type Server struct {
 
 	// localConsuls is used to track the known consuls
 	// in the local datacenter. Used to do leader forwarding.
-	localConsuls map[string]*serverParts
+	localConsuls map[string]*agent.Server
 	localLock    sync.RWMutex
 
 	// Logger uses the provided LogOutput
@@ -119,7 +120,7 @@ type Server struct {
 
 	// remoteConsuls is used to track the known consuls in
 	// remote datacenters. Used to do DC forwarding.
-	remoteConsuls map[string][]*serverParts
+	remoteConsuls map[string][]*agent.Server
 	remoteLock    sync.RWMutex
 
 	// rpcListener is used to listen for incoming connections
@@ -158,6 +159,7 @@ type endpoints struct {
 	Health        *Health
 	Status        *Status
 	KVS           *KVS
+	KVSv2         *KVSv2
 	Session       *Session
 	Internal      *Internal
 	ACL           *ACL
@@ -216,10 +218,10 @@ func NewServer(config *Config) (*Server, error) {
 		connPool:      NewPool(config.LogOutput, serverRPCCache, serverMaxStreams, tlsWrap),
 		eventChLAN:    make(chan serf.Event, 256),
 		eventChWAN:    make(chan serf.Event, 256),
-		localConsuls:  make(map[string]*serverParts),
+		localConsuls:  make(map[string]*agent.Server),
 		logger:        logger,
 		reconcileCh:   make(chan serf.Member, 32),
-		remoteConsuls: make(map[string][]*serverParts),
+		remoteConsuls: make(map[string][]*agent.Server),
 		rpcServer:     rpc.NewServer(),
 		rpcTLS:        incomingTLS,
 		tombstoneGC:   gc,
@@ -434,6 +436,7 @@ func (s *Server) setupRPC(tlsWrap tlsutil.DCWrapper) error {
 	s.endpoints.Catalog = &Catalog{s}
 	s.endpoints.Health = &Health{s}
 	s.endpoints.KVS = &KVS{s}
+	s.endpoints.KVSv2 = &KVSv2{KVS{s}}
 	s.endpoints.Session = &Session{s}
 	s.endpoints.Internal = &Internal{s}
 	s.endpoints.ACL = &ACL{s}
@@ -445,6 +448,7 @@ func (s *Server) setupRPC(tlsWrap tlsutil.DCWrapper) error {
 	s.rpcServer.Register(s.endpoints.Catalog)
 	s.rpcServer.Register(s.endpoints.Health)
 	s.rpcServer.Register(s.endpoints.KVS)
+	s.rpcServer.Register(s.endpoints.KVSv2)
 	s.rpcServer.Register(s.endpoints.Session)
 	s.rpcServer.Register(s.endpoints.Internal)
 	s.rpcServer.Register(s.endpoints.ACL)
@@ -733,6 +737,7 @@ func (s *Server) Stats() map[string]map[string]string {
 		"consul": map[string]string{
 			"server":            "true",
 			"leader":            fmt.Sprintf("%v", s.IsLeader()),
+			"leader_addr":       s.raft.Leader(),
 			"bootstrap":         fmt.Sprintf("%v", s.config.Bootstrap),
 			"known_datacenters": toString(uint64(len(s.remoteConsuls))),
 		},
